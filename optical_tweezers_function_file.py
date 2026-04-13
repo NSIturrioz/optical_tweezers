@@ -206,11 +206,7 @@ def f_lattice(t, vec, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
     v = vec[3:6]
     # Acceleration
     x, y, z = pos
-    I_1 = gaussian_beam_rotated(x, y, z, P, w01, wavelength, z01)
-    I_2 = gaussian_beam_rotated(-x, y, z, P, w02, wavelength, z02)
-    I_1_grad = grad_I_rotated(x, y, z, P, w01, wavelength, z01)
-    I_2_grad = grad_I_rotated(-x, y, z, P, w02, wavelength, z02)
-    grad_U = grad_U_L_rotated(I_1, I_2, I_1_grad, I_2_grad, x, Re_alpha, wavelength)
+    grad_U = grad_U_L_rotated(x, y, z, Re_alpha, P, w01, w02, wavelength, z01, z02)
     gravity = g*e_x
     a = -grad_U / m_yb - gravity
 
@@ -517,7 +513,7 @@ def grad_U_L(x, y, z, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
     grad_U = -grad_U_0 + grad_U_Latt_sin
     return grad_U
 
-def grad_U_L_rotated(I_1, I_2, I_1_grad, I_2_grad, x, Re_alpha, wavelength):
+def grad_U_L_rotated(x, y, z, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
     """
     Gradient of the lattice potential of a static lattice formed by two counter-propagating Gaussian beams with equal frequencies.
 
@@ -534,6 +530,10 @@ def grad_U_L_rotated(I_1, I_2, I_1_grad, I_2_grad, x, Re_alpha, wavelength):
     """
     k = 2 * pi / wavelength
     const = Re_alpha/(2*eps_0 * c)
+    I_1 = gaussian_beam_rotated(x, y, z, P, w01, wavelength, z01)
+    I_2 = gaussian_beam_rotated(-x, y, z, P, w02, wavelength, z02)
+    I_1_grad = grad_I_rotated(x, y, z, P, w01, wavelength, z01)
+    I_2_grad = grad_I_rotated(-x, y, z, P, w02, wavelength, z02)
     grad_sqrt_I1I2 = np.array([
         (I_2*I_1_grad[0]+I_1*I_2_grad[0])/2*np.sqrt(I_1*I_2),
         (I_2*I_1_grad[1]+I_1*I_2_grad[1])/2*np.sqrt(I_1*I_2),
