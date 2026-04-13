@@ -3,6 +3,8 @@ import numpy as np
 from tqdm import tqdm
 from scipy.integrate import solve_ivp
 
+from line_profiler import profile
+
 #Universal constants
 hbar = const.hbar
 h = const.h
@@ -205,11 +207,9 @@ def f_lattice(t, vec, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
     pos = vec[0:3]
     v = vec[3:6]
     # Acceleration
-    x, y, z = pos
-    grad_U = grad_U_L_rotated(x, y, z, Re_alpha, P, w01, w02, wavelength, z01, z02)
+    grad_U = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha, P, w01, w02, wavelength, z01, z02)
     gravity = g*e_x
-    a = -grad_U / m_yb - gravity
-
+    a = grad_U / m_yb - gravity
     # Derivative of the state vector: [v, a]
     vec_dev = np.hstack((v, a)) 
     return vec_dev
@@ -235,9 +235,8 @@ def f_lattice_and_tweezer(vec, t, Re_alpha, P, w01, w02, wavelength, z01=0, z02=
     return vec_dev
 
 #--------------------------------------------------- Evaluation of the physical processes ---------------------------------------------
-
 def atom_loading_MOT_lattice(max_t, Re_alpha, P, w01, w02, wavelength, z01, z02, radii, N_atoms, T):
-    np.random.seed(100)
+    np.random.seed(10)
     #Initial conditions
     init_pos = random_points_in_sphere(radii, N_atoms)                 # Positions of each atoms over time                       [shape: (N_atoms, 3)]
     init_vel = sample_mb_velocity(T, m_yb, N_atoms)                    # Velocities of each atom over time                       [shape: (N_atoms, 3)]
@@ -248,17 +247,17 @@ def atom_loading_MOT_lattice(max_t, Re_alpha, P, w01, w02, wavelength, z01, z02,
     args = [Re_alpha, P, w01, w02, wavelength, z01, z02]
 
     for i in tqdm(range(N_atoms)):
-        sol = solve_ivp(f_lattice, [0,max_t], init_vec[i], method='RK45', t_eval=np.linspace(0, max_t, 1), args=args)
+        sol = solve_ivp(f_lattice, [0,max_t], init_vec[i], method='DOP853', t_eval=np.linspace(0, max_t, 1000), args=args)
         times = sol.t
         vec=sol.y
         positions.append(np.array([vec[0], vec[1], vec[2]]))
         velocities.append(np.array([vec[3], vec[4], vec[5]]))
-        #kinetik = 0.5 * m_yb * np.sum(velocities**2, axis=0)
-        #potential_lattice = optical_dipole_trap_2_beams_rotated(positions[0], positions[1], positions[2], 0, Re_alpha, P, w01, w02, wavelength, z01, z02)
+        kinetik = 0.5 * m_yb * (np.linalg.norm(velocities[i], axis=0))**2 #shape: (times)
+        potential_lattice = optical_dipole_trap_2_beams_rotated(positions[0], positions[1], positions[2], t, Re_alpha, P, w01, w02, wavelength, z01, z02)
         #U_latt = lattice_depth_2_beams_rotated(positions[0], positions[1], positions[2], Re_alpha, P, w01, w02, wavelength, z01, z02)
-        #gravity = m_yb * g * abs(positions[0]) ## How do I consider the gravity as a potential?
-        #energy = kinetik + potential_lattice + gravity
-    return times, np.array(velocities), np.array(positions)
+        gravity = m_yb * g * abs(positions[0]) ## How do I consider the gravity as a potential?
+        energy = kinetik + potential_lattice + gravity
+    return times, np.array(velocities), np.array(positions), energy
 
 
 ######################################################## OPTICAL LATTICE ########################################################
@@ -697,5 +696,5 @@ if __name__ == "__main__":
     x = np.linspace(-7*wavelength, 7*wavelength, 500)                  #m
 
     N_atoms = 1
-    t, vels_overtime, pos_overtime = atom_loading_MOT_lattice(1, Re_alpha_lat, P, w01, w02, wavelength, 0, 0, radii, N_atoms, T)
+    t, vels_overtime, pos_overtime = atom_loading_MOT_lattice(2, Re_alpha_lat, P, w01, w02, wavelength, 0, 0, radii, N_atoms, T)
     print("done")
