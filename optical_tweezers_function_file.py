@@ -210,7 +210,6 @@ def f_lattice(t, vec, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
     I_2 = gaussian_beam_rotated(-x, y, z, P, w02, wavelength, z02)
     I_1_grad = grad_I_rotated(x, y, z, P, w01, wavelength, z01)
     I_2_grad = grad_I_rotated(-x, y, z, P, w02, wavelength, z02)
-
     grad_U = grad_U_L_rotated(I_1, I_2, I_1_grad, I_2_grad, x, Re_alpha, wavelength)
     gravity = g*e_x
     a = -grad_U / m_yb - gravity
@@ -677,3 +676,26 @@ def lens_system(f1, f2, d=None, wavelength=532e-9, w0=1800e-6, M2=1):
     zR_2 = np.imag(q)
     w0_2 = np.sqrt(M2 * wavelength * zR_2 / pi)
     return w0_2, z0_2
+
+
+
+if __name__ == "__main__":
+
+    # Parameters 3D MOT
+    T_D = 4.4e-6 #K Doppler temperature for 1S0 → 3P1 transition of Yb
+    T = 5*T_D # ????
+    radii = 50e-6 #m 3D MOT radius
+    # Parameters lattice
+    #Parameters
+    Re_alpha_lat = au_to_SI(270)                                        #A^2s^4/kg
+    P = 1                                                               #W
+    w01, w02 = 50e-6, 50e-6                                             #m
+    wavelength = 532e-9                                                 #m
+    w1, w2 = 2*np.pi*nm_to_Hz(wavelength), 2*np.pi*nm_to_Hz(wavelength) #Hz
+
+    z = np.linspace(-600e-6, 600e-6, 500)                                #m
+    x = np.linspace(-7*wavelength, 7*wavelength, 500)                  #m
+
+    N_atoms = 1
+    t, vels_overtime, pos_overtime = atom_loading_MOT_lattice(1, Re_alpha_lat, P, w01, w02, wavelength, 0, 0, radii, N_atoms, T)
+    print("done")
