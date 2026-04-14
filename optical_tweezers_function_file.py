@@ -250,10 +250,12 @@ def atom_loading_MOT_lattice(max_t, Re_alpha, P, w01, w02, wavelength, z01, z02,
     velocities=[]                                                   # Velocities of each atom over time                       [shape: (N_atoms, 3, times)]
     positions=[]                                                    # Positions of each atoms over time                       [shape: (N_atoms, 3, times)]
     idx_lost_atoms = []
-
-    args = [Re_alpha, P, w01, w02, wavelength, z01, z02]
+    energies = []
     
+    args = [Re_alpha, P, w01, w02, wavelength, z01, z02]
+
     for i in tqdm(range(N_atoms)):
+        #E_init = energy(init_vec[i][0], init_vec[i][1], init_vec[i][2], init_vec[i][3], init_vec[i][4], init_vec[i][5], Re_alpha, P, w01, w02, wavelength, z01, z02)
         sol = solve_ivp(f_lattice, [0,max_t], init_vec[i], method='DOP853', t_eval=np.linspace(0, max_t, 1000), args=args)
         times = sol.t
         vec=sol.y
@@ -265,18 +267,27 @@ def atom_loading_MOT_lattice(max_t, Re_alpha, P, w01, w02, wavelength, z01, z02,
             idx_lost_atoms.append(i)
         positions.append(np.array([x, y, z]))
         velocities.append(np.array([vx, vy, vz]))
-    return times, np.array(velocities), np.array(positions), np.array(idx_lost_atoms)
+        energies.append(E)
+    return times, np.array(velocities), np.array(positions), np.array(energies), np.array(idx_lost_atoms)
 
 
 ######################################################## OPTICAL LATTICE ########################################################
 
 def energy(x, y, z, vx, vy, vz, Re_alpha, P, w01, w02, wavelength, z01 = 0, z02 = 0):
-    v2 = vx**2 + vy**2 + vz**2                                                                                       #shape: (N_atoms, t_max)
-    kinetik = 0.5 * m_yb * v2                                                                                        #shape: (N_atoms, t_max)
-    potential_lattice = optical_dipole_trap_2_beams_rotated(x, y, z, 0, Re_alpha, P, w01, w02, wavelength, z01, z02) #shape: (N_atoms, t_max)
-    #gravity = m_yb * g * x                                                                                           #shape: (N_atoms, t_max)
-    energy = kinetik + potential_lattice #+ gravity                                                                   # Energy of each atom over time                                                                 [shape: (N_atoms, t_max)]
+    v2 = vx**2 + vy**2 + vz**2                                                                                       #shape: (N_atoms, len(t_eval))
+    kinetik = 0.5 * m_yb * v2                                                                                        #shape: (N_atoms, len(t_eval))
+    potential_lattice = optical_dipole_trap_2_beams_rotated(x, y, z, 0, Re_alpha, P, w01, w02, wavelength, z01, z02) #shape: (N_atoms, len(t_eval))
+    #gravity = m_yb * g * x                                                                                           #shape: (N_atoms, len(t_eval))
+    energy = kinetik + potential_lattice #+ gravity                                                                   # Energy of each atom over time                                                                 [shape: (N_atoms, len(t_eval))]
     return energy
+
+def energy_event(t, vec, Re_alpha, P, w01, w02, wavelength, E_init, z01 = 0, z02 = 0):
+    E = energy(vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], Re_alpha, P, w01, w02, wavelength, z01, z02)
+    if E-E_init > 1e-9:
+        event = 0
+    else:
+        event = 1
+    return event
 
 def two_gaussian_beams(z, t, I1, I2, w1, w2, wavelength):
     """
