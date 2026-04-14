@@ -1,7 +1,7 @@
 import scipy.constants as const
 import numpy as np
 from tqdm import tqdm
-from scipy.integrate import solve_ivp
+from scipy.integrate import solve_ivp, odeint
 
 from line_profiler import profile
 
@@ -220,6 +220,19 @@ def f_lattice(t, vec, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
     vec_dev = np.hstack((v, a)) 
     return vec_dev
 
+def f_lattice_odeint(vec, t, params):
+    # Extract positions (x,y,z) and velocities (vx,vy,vz)
+    pos = vec[0:3]
+    v = vec[3:6]
+    Re_alpha, P, w01, w02, wavelength, z01, z02 = params
+    # Acceleration
+    grad_U = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha, P, w01, w02, wavelength, z01, z02)
+    gravity = g*e_x
+    a = - grad_U / m_yb #- gravity
+    # Derivative of the state vector: [v, a]
+    vec_dev = np.hstack((v, a)) 
+    return vec_dev
+
 def f_lattice_and_tweezer(vec, t, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
     t0 = 0.1 #s
     # Extract positions (x,y,z) and velocities (vx,vy,vz)
@@ -256,7 +269,7 @@ def atom_loading_MOT_lattice(max_t, Re_alpha, P, w01, w02, wavelength, z01, z02,
 
     for i in tqdm(range(N_atoms)):
         #E_init = energy(init_vec[i][0], init_vec[i][1], init_vec[i][2], init_vec[i][3], init_vec[i][4], init_vec[i][5], Re_alpha, P, w01, w02, wavelength, z01, z02)
-        sol = solve_ivp(f_lattice, [0,max_t], init_vec[i], method='DOP853', t_eval=np.linspace(0, max_t, 1000), args=args)
+        sol = solve_ivp(f_lattice, [0,max_t], init_vec[i], method='BDF', t_eval=np.linspace(0, max_t, 1000), args=args)
         times = sol.t
         vec=sol.y
         x, y, z = vec[0], vec[1], vec[2]
@@ -264,6 +277,37 @@ def atom_loading_MOT_lattice(max_t, Re_alpha, P, w01, w02, wavelength, z01, z02,
         E = energy(x, y, z, vx, vy, vz, Re_alpha, P, w01, w02, wavelength, z01, z02)
         lost = E > 0
         if lost.any():
+            idx_lost_atoms.append(i)
+        positions.append(np.array([x, y, z]))
+        velocities.append(np.array([vx, vy, vz]))
+        energies.append(E)
+    return times, np.array(velocities), np.array(positions), np.array(energies), np.array(idx_lost_atoms)
+
+def atom_loading_MOT_lattice_odeint(max_t, Re_alpha, P, w01, w02, wavelength, z01, z02, radii, N_atoms, T):
+    np.random.seed(10)
+    #Initial conditions
+    t_eval=np.linspace(0, max_t, 5000)
+    init_pos = random_points_in_sphere(radii, N_atoms)                 # Positions of each atoms over time                       [shape: (N_atoms, 3)]
+    init_vel = sample_mb_velocity(T, m_yb, N_atoms)                    # Velocities of each atom over time                       [shape: (N_atoms, 3)]
+    init_vec = np.hstack((init_pos, init_vel))                         # Initial state vector: [x, y, z, vx, vy, vz]             [shape: (N_atoms, 6)]
+    velocities=[]                                                   # Velocities of each atom over time                       [shape: (N_atoms, 3, times)]
+    positions=[]                                                    # Positions of each atoms over time                       [shape: (N_atoms, 3, times)]
+    idx_lost_atoms = []
+    energies = []
+    
+    args = [Re_alpha, P, w01, w02, wavelength, z01, z02]
+
+    for i in tqdm(range(N_atoms)):
+        #E_init = energy(init_vec[i][0], init_vec[i][1], init_vec[i][2], init_vec[i][3], init_vec[i][4], init_vec[i][5], Re_alpha, P, w01, w02, wavelength, z01, z02)
+        sol = odeint(f_lattice_odeint, init_vec[i], t_eval, args=(args,))
+        times = t_eval
+        x, y, z = sol[:,0], sol[:,1], sol[:,2]
+        vx, vy, vz = sol[:,3], sol[:,4], sol[:,5]
+        E = energy(x, y, z, vx, vy, vz, Re_alpha, P, w01, w02, wavelength, z01, z02)
+        lost = E > 0
+        if lost.any():
+            if np.sum(lost) == 1:
+                print('Atom lost', i, 'at time:', times[lost][0])
             idx_lost_atoms.append(i)
         positions.append(np.array([x, y, z]))
         velocities.append(np.array([vx, vy, vz]))
