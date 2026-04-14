@@ -234,13 +234,6 @@ def f_lattice_and_tweezer(vec, t, Re_alpha, P, w01, w02, wavelength, z01=0, z02=
     vec_dev = np.hstack((v, a)) 
     return vec_dev
 
-def energy(vec):
-    kinetik = 0.5 * m_yb * (vec[3]**2 + vec[4]**2 + vec[5]**2) 
-    potential_lattice = optical_dipole_trap_2_beams_rotated(vec[0], vec[1], vec[2], t, Re_alpha, P, w01, w02, wavelength, z01, z02)
-    #U_latt = lattice_depth_2_beams_rotated(positions[0], positions[1], positions[2], Re_alpha, P, w01, w02, wavelength, z01, z02)
-    gravity = m_yb * g * abs(positions[0]) ## How do I consider the gravity as a potential?
-    energy = kinetik + potential_lattice + gravity
-    return energy
 #--------------------------------------------------- Evaluation of the physical processes ---------------------------------------------
 def atom_loading_MOT_lattice(max_t, Re_alpha, P, w01, w02, wavelength, z01, z02, radii, N_atoms, T):
     np.random.seed(10)
@@ -259,10 +252,18 @@ def atom_loading_MOT_lattice(max_t, Re_alpha, P, w01, w02, wavelength, z01, z02,
         vec=sol.y
         positions.append(np.array([vec[0], vec[1], vec[2]]))
         velocities.append(np.array([vec[3], vec[4], vec[5]]))
-    return times, np.array(velocities), np.array(positions), energy
+    return times, np.array(velocities), np.array(positions)
 
 
 ######################################################## OPTICAL LATTICE ########################################################
+
+def energy(x, y, z, vx, vy, vz, Re_alpha, P, w01, w02, wavelength, z01 = 0, z02 = 0):
+    v2 = vx**2 + vy**2 + vz**2                                                                                       #shape: (N_atoms, t_max)
+    kinetik = 0.5 * m_yb * v2                                                                                        #shape: (N_atoms, t_max)
+    potential_lattice = optical_dipole_trap_2_beams_rotated(x, y, z, 0, Re_alpha, P, w01, w02, wavelength, z01, z02) #shape: (N_atoms, t_max)
+    gravity = m_yb * g * x                                                                                           #shape: (N_atoms, t_max)
+    energy = kinetik + potential_lattice + gravity                                                                   # Energy of each atom over time                                                                 [shape: (N_atoms, t_max)]
+    return energy
 
 def two_gaussian_beams(z, t, I1, I2, w1, w2, wavelength):
     """
