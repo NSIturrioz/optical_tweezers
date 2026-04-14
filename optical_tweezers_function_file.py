@@ -243,16 +243,25 @@ def atom_loading_MOT_lattice(max_t, Re_alpha, P, w01, w02, wavelength, z01, z02,
     init_vec = np.hstack((init_pos, init_vel))                         # Initial state vector: [x, y, z, vx, vy, vz]             [shape: (N_atoms, 6)]
     velocities=[]                                                   # Velocities of each atom over time                       [shape: (N_atoms, 3, times)]
     positions=[]                                                    # Positions of each atoms over time                       [shape: (N_atoms, 3, times)]
-  
-    args = [Re_alpha, P, w01, w02, wavelength, z01, z02]
+    idx_lost_atoms = []
 
+    args = [Re_alpha, P, w01, w02, wavelength, z01, z02]
+    
     for i in tqdm(range(N_atoms)):
         sol = solve_ivp(f_lattice, [0,max_t], init_vec[i], method='DOP853', t_eval=np.linspace(0, max_t, 1000), args=args)
         times = sol.t
         vec=sol.y
-        positions.append(np.array([vec[0], vec[1], vec[2]]))
-        velocities.append(np.array([vec[3], vec[4], vec[5]]))
-    return times, np.array(velocities), np.array(positions)
+        x, y, z = vec[0], vec[1], vec[2]
+        vx, vy, vz = vec[3], vec[4], vec[5]
+        E = energy(x, y, z, vx, vy, vz, Re_alpha, P, w01, w02, wavelength, z01, z02)
+        U_lattice = U_0_latt_2_beams_rotated(x, y, z, Re_alpha, P, w01, w02, wavelength, z01, z02)
+        U_0 = lattice_depth_2_beams_rotated(x, y, z, Re_alpha, P, w01, w02, wavelength, z01, z02)
+        lost = E > (U_lattice + U_0)
+        if lost.any():
+            idx_lost_atoms.append(i)
+        positions.append(np.array([x, y, z]))
+        velocities.append(np.array([vx, vy, vz]))
+    return times, np.array(velocities), np.array(positions), np.array(idx_lost_atoms)
 
 
 ######################################################## OPTICAL LATTICE ########################################################
