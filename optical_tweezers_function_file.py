@@ -258,7 +258,7 @@ def f_lattice_and_tweezer(vec, t, Re_alpha, P, w01, w02, wavelength, z01=0, z02=
     return vec_dev
 
 #--------------------------------------------------- Evaluation of the physical processes ---------------------------------------------
-def atom_loading_MOT_lattice(max_t, Re_alpha, P, w01, w02, wavelength, z01, z02, radii, N_atoms, T):
+def atom_loading_MOT_lattice(max_t, t_points, Re_alpha, P, w01, w02, wavelength, z01, z02, radii, N_atoms, T):
     np.random.seed(10)
     #Initial conditions
     init_pos = random_points_in_sphere(radii, N_atoms)                 # Positions of each atoms over time                       [shape: (N_atoms, 3)]
@@ -273,7 +273,7 @@ def atom_loading_MOT_lattice(max_t, Re_alpha, P, w01, w02, wavelength, z01, z02,
 
     for i in tqdm(range(N_atoms)):
         #E_init = energy(init_vec[i][0], init_vec[i][1], init_vec[i][2], init_vec[i][3], init_vec[i][4], init_vec[i][5], Re_alpha, P, w01, w02, wavelength, z01, z02)
-        sol = solve_ivp(f_lattice, [0,max_t], init_vec[i], t_eval=np.linspace(0, max_t, 100), method='DOP853', args=args)
+        sol = solve_ivp(f_lattice, [0,max_t], init_vec[i], t_eval=np.linspace(0, max_t, t_points), method='DOP853', args=args, rtol = 1e-6, atol = 1e-12)
         times = sol.t
         vec=sol.y
         x, y, z = vec[0], vec[1], vec[2]
