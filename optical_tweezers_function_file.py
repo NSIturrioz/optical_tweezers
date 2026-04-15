@@ -149,15 +149,15 @@ def grad_I(x, y, z, P, w0, wavelength, z0=0):
     :param wavelength: Wavelength of the light
     :param z0: Position of the waist
     """
-    A = 2*P/(pi*w0**2)
+    A = 2*P/pi
     B = pi * w0**2 / wavelength
-    C = w0**2
-    grad_x = -4*x*A/(C*(1+z**2/B**2))*(1+z**2/B**2)**(-1)*np.exp(-2*(x**2+y**2)/(C*(1+z**2/B**2)))
-    grad_y = -4*y*A/(C*(1+z**2/B**2))*(1+z**2/B**2)**(-1)*np.exp(-2*(x**2+y**2)/(C*(1+z**2/B**2)))
-    grad_z = 2*A*z/(B**2*(1+z**2/B**2)**2)*np.exp(-2*(x**2+y**2)/(C*(1+z**2/B**2)))*(-1+2*(x**2+y**2)/(C*(1+z**2/B**2)))
+    W = w0**2
+    grad_x = -4*x*A*np.exp(-2*B**2*(x**2+y**2)/(W*(B**2+z**2)))/((W+W*z**2/(B**2))**2)
+    grad_y = -4*y*A*np.exp(-2*B**2*(x**2+y**2)/(W*(B**2+z**2)))/((W+W*z**2/(B**2))**2)
+    grad_z = (-2*A*B**2*np.exp(-2*B**2*(x**2+y**2)/(W*(B**2+z**2)))*z*(B**2*(W-2*(x**2+y**2))+W*z**2))/(W**2*(B**2+z**2)**3)
     return np.array([grad_x, grad_y, grad_z])
 
-def grad_I_rotated(x, y, z, P, w0, wavelength, z0=0):
+def grad_I_rotated(x, y, z, P, w0, wavelength, z0 =0):
     """
     Gradient of the intensity of a Gaussian beam.
 
@@ -169,13 +169,17 @@ def grad_I_rotated(x, y, z, P, w0, wavelength, z0=0):
     :param wavelength: Wavelength of the light
     :param z0: Position of the waist
     """
-    A = 2*P/(pi*w0**2)
+    eps = 1e-15
+    A = 2*P/pi
     B = pi * w0**2 / wavelength
-    C = w0**2
-    x, y, z = y, z, x
-    grad_x = 2*A*z/(B**2*(1+z**2/B**2)**2)*np.exp(-2*(x**2+y**2)/(C*(1+z**2/B**2)))*(-1+2*(x**2+y**2)/(C*(1+z**2/B**2)))
-    grad_y = -4*x*A/(C*(1+z**2/B**2))*(1+z**2/B**2)**(-1)*np.exp(-2*(x**2+y**2)/(C*(1+z**2/B**2)))
-    grad_z = -4*y*A/(C*(1+z**2/B**2))*(1+z**2/B**2)**(-1)*np.exp(-2*(x**2+y**2)/(C*(1+z**2/B**2)))
+    W = w0**2
+    div_1 = W**2*(B**2+x**2)**3
+    div_2 = (W+W*x**2/(B**2))**2
+    div_1, div_2 = np.maximum(div_1, eps), np.maximum(div_2, eps)
+
+    grad_x = (-2*A*B**2*np.exp(-2*B**2*(y**2+z**2)/(W*(B**2+x**2)))*x*(W*x**2+B**2*(W-2*(y**2+z**2))))/div_1
+    grad_y = -4*y*A*np.exp(-2*B**2*(y**2+z**2)/(W*(B**2+x**2)))/div_2
+    grad_z = -4*z*A*np.exp(-2*B**2*(y**2+z**2)/(W*(B**2+x**2)))/div_2
     return np.array([grad_x, grad_y, grad_z])
 
 #################################################### EQUATIONS OF MOTION #########################################################
@@ -213,7 +217,7 @@ def f_lattice(t, vec, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
     pos = vec[0:3]
     v = vec[3:6]
     # Acceleration
-    grad_U = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha, P, w01, w02, wavelength, z01, z02)
+    grad_U = grad_U_L_rotated_(pos[0], pos[1], pos[2], Re_alpha, P, w01, w02, wavelength, z01, z02)
     gravity = g*e_x
     a = - grad_U / m_yb #- gravity
     # Derivative of the state vector: [v, a]
@@ -269,7 +273,7 @@ def atom_loading_MOT_lattice(max_t, Re_alpha, P, w01, w02, wavelength, z01, z02,
 
     for i in tqdm(range(N_atoms)):
         #E_init = energy(init_vec[i][0], init_vec[i][1], init_vec[i][2], init_vec[i][3], init_vec[i][4], init_vec[i][5], Re_alpha, P, w01, w02, wavelength, z01, z02)
-        sol = solve_ivp(f_lattice, [0,max_t], init_vec[i], method='BDF', t_eval=np.linspace(0, max_t, 1000), args=args)
+        sol = solve_ivp(f_lattice, [0,max_t], init_vec[i], t_eval=np.linspace(0, max_t, 100), method='DOP853', args=args)
         times = sol.t
         vec=sol.y
         x, y, z = vec[0], vec[1], vec[2]
@@ -599,7 +603,7 @@ def grad_U_L_rotated(x, y, z, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
     :param z02: Position of the waist of the second beam
     """
     k = 2 * pi / wavelength
-    const = Re_alpha/(2*eps_0 * c)
+    const = -Re_alpha/(2*eps_0 * c)
     I_1 = gaussian_beam_rotated(x, y, z, P, w01, wavelength, z01)
     I_2 = gaussian_beam_rotated(-x, y, z, P, w02, wavelength, z02)
     I_1_grad = grad_I_rotated(x, y, z, P, w01, wavelength, z01)
@@ -617,6 +621,40 @@ def grad_U_L_rotated(x, y, z, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
     v2 = (np.sin(k*z))**2*2*Re_alpha / (eps_0 * c) * grad_sqrt_I1I2
     grad_U_Latt_sin = v1 + v2
     grad_U = -grad_U_0 + grad_U_Latt_sin
+    return grad_U
+
+def grad_U_L_rotated_(x, y, z, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
+    """
+    Gradient of the lattice potential of a static lattice formed by two counter-propagating Gaussian beams with equal frequencies.
+
+    :param x: x coordinate
+    :param y: y coordinate
+    :param z: z coordinate
+    :param Re_alpha: Real part of the atomic polarizability
+    :param P: Power of the laser beam
+    :param w01: Beam waist of the first beam
+    :param w02: Beam waist of the second beam
+    :param wavelength: Wavelength of the light
+    :param z01: Position of the waist of the first beam
+    :param z02: Position of the waist of the second beam
+    """
+    eps = 1e-15
+    k = 2 * pi / wavelength
+    const = -Re_alpha/(2*eps_0 * c)
+    coss = np.cos(2*k*x)
+    sinn = np.sin(2*k*x)
+    I_1 = gaussian_beam_rotated(x, y, z, P, w01, wavelength, z01)
+    I_2 = gaussian_beam_rotated(-x, y, z, P, w02, wavelength, z02)
+    I_1_grad = grad_I_rotated(x, y, z, P, w01, wavelength, z01)
+    I_2_grad = grad_I_rotated(-x, y, z, P, w02, wavelength, z02)
+    div = 2*np.sqrt(I_1*I_2)
+    div = np.maximum(div, eps)
+    grad_sqrt_I1I2_cos = np.array([
+        (coss*I_1*I_2_grad[0]+I_2*(-4*k*I_1*sinn+coss*I_1_grad[0]))/div,
+        (coss*(I_1*I_2_grad[1]+I_2*I_1_grad[1]))/div,
+        (coss*(I_1*I_2_grad[2]+I_2*I_1_grad[2]))/div
+    ])
+    grad_U = const*(I_1_grad+I_2_grad+2*grad_sqrt_I1I2_cos)
     return grad_U
 
 def lattice_velocity(w1, w2, wavelength):
