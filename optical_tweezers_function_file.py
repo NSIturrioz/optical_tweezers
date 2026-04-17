@@ -237,22 +237,34 @@ def f_lattice_odeint(vec, t, params):
     vec_dev = np.hstack((v, a)) 
     return vec_dev
 
-def f_lattice_and_tweezer(vec, t, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
-    t0 = 0.1 #s
+def f_lattice_and_tweezer(t, vec, Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w02, w0, wavelength, z01=0, z02=0, z0=0):
+    t01 = 10e-6 #s optical tweezers are switched on and their intensity is linaerly increased
+    t02 = 20e-6 #s optical tweezers stop increasing intensity
+    t03 = 25e-6 #s optical tweezers start moving
+    dPdt = P_tw/(t02-t01)  #Slope of the tweezer power scheme
     # Extract positions (x,y,z) and velocities (vx,vy,vz)
     pos = vec[0:3]
     v = vec[3:6]
     # Acceleration
-    if t<t0:
-        grad_U = grad_U_L(pos[0], pos[1], pos[2], Re_alpha, P, w01, w02, wavelength, z01, z02)
+    if t<t01:
+        grad_U = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength, z01, z02)
         gravity = g*e_y
-        a = -grad_U / m_yb - gravity
-    else:
-        grad_U_lattice = grad_U_L(pos[0], pos[1], pos[2], Re_alpha, P, w01, w02, wavelength, z01, z02)
-        grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha, P, w01, w02, wavelength, z01, z02)
+        a = -grad_U / m_yb #- gravity
+    if t>=t01 and t<t02:
+        P = dPdt*t
+        grad_U_lattice = grad_U_L(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength, z01, z02)
+        grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P, w0, wavelength, z0)
         grad_U = grad_U_lattice + grad_U_tweezer
         gravity = g*e_y 
-        a = -grad_U / m_yb - gravity
+        a = -grad_U / m_yb #- gravity
+    if t>=t02 and t<t03:
+        grad_U_lattice = grad_U_L(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength, z01, z02)
+        grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P_tw, w0, wavelength, z0)
+        grad_U = grad_U_lattice + grad_U_tweezer
+        gravity = g*e_y 
+        a = -grad_U / m_yb #- gravity
+    if t>=t03:
+
     # Derivative of the state vector: [v, a]
     vec_dev = np.hstack((v, a)) 
     return vec_dev
