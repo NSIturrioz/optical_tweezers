@@ -149,15 +149,20 @@ def grad_I(x, y, z, P, w0, wavelength, z0=0):
     :param wavelength: Wavelength of the light
     :param z0: Position of the waist
     """
+    eps = 1e-15
     A = 2*P/pi
     B = pi * w0**2 / wavelength
     W = w0**2
-    grad_x = -4*x*A*np.exp(-2*B**2*(x**2+y**2)/(W*(B**2+z**2)))/((W+W*z**2/(B**2))**2)
-    grad_y = -4*y*A*np.exp(-2*B**2*(x**2+y**2)/(W*(B**2+z**2)))/((W+W*z**2/(B**2))**2)
-    grad_z = (-2*A*B**2*np.exp(-2*B**2*(x**2+y**2)/(W*(B**2+z**2)))*z*(B**2*(W-2*(x**2+y**2))+W*z**2))/(W**2*(B**2+z**2)**3)
+    div_1 = ((W+W*(z-z0)**2/(B**2))**2)
+    div_2 = (W**2*(B**2+(z-z0)**2)**3)
+    div_1, div_2 = np.maximum(div_1, eps), np.maximum(div_2, eps)
+
+    grad_x = -4*x*A*np.exp(-2*B**2*(x**2+y**2)/(W*(B**2+(z-z0)**2)))/div_1
+    grad_y = -4*y*A*np.exp(-2*B**2*(x**2+y**2)/(W*(B**2+(z-z0)**2)))/div_1
+    grad_z = (-2*A*B**2*np.exp(-2*B**2*(x**2+y**2)/(W*(B**2+(z-z0)**2)))*(z-z0)*(B**2*(W-2*(x**2+y**2))+W*(z-z0)**2))/div_2
     return np.array([grad_x, grad_y, grad_z])
 
-def grad_I_rotated(x, y, z, P, w0, wavelength, z0 =0):
+def grad_I_rotated(x, y, z, P, w0, wavelength, x0 = 0):
     """
     Gradient of the intensity of a Gaussian beam.
 
@@ -173,15 +178,23 @@ def grad_I_rotated(x, y, z, P, w0, wavelength, z0 =0):
     A = 2*P/pi
     B = pi * w0**2 / wavelength
     W = w0**2
-    div_1 = W**2*(B**2+x**2)**3
-    div_2 = (W+W*x**2/(B**2))**2
+    div_1 = W**2*(B**2+(x-x0)**2)**3
+    div_2 = (W+W*(x-x0)**2/(B**2))**2
     div_1, div_2 = np.maximum(div_1, eps), np.maximum(div_2, eps)
 
-    grad_x = (-2*A*B**2*np.exp(-2*B**2*(y**2+z**2)/(W*(B**2+x**2)))*x*(W*x**2+B**2*(W-2*(y**2+z**2))))/div_1
-    grad_y = -4*y*A*np.exp(-2*B**2*(y**2+z**2)/(W*(B**2+x**2)))/div_2
-    grad_z = -4*z*A*np.exp(-2*B**2*(y**2+z**2)/(W*(B**2+x**2)))/div_2
+    grad_x = (-2*A*B**2*np.exp(-2*B**2*(y**2+z**2)/(W*(B**2+(x-x0)**2)))*(x-x0)*(W*(x-x0)**2+B**2*(W-2*(y**2+z**2))))/div_1
+    grad_y = -4*y*A*np.exp(-2*B**2*(y**2+z**2)/(W*(B**2+(x-x0)**2)))/div_2
+    grad_z = -4*z*A*np.exp(-2*B**2*(y**2+z**2)/(W*(B**2+(x-x0)**2)))/div_2
     return np.array([grad_x, grad_y, grad_z])
 
+def pos_const_jerk(t, a, b, c):
+    return a*b**2*t-a*b*t**2+a/3*t**3+c*t
+
+def vel_const_jerk(t, a, b, c):
+    return a*(t-b)**2+c
+
+def a_const_jerk(t, a, b):
+    return 2*a*(t-b)
 #################################################### EQUATIONS OF MOTION #########################################################
 
 #--------------------------------------------------- Initialization --------------------------------------------------------------
@@ -217,7 +230,7 @@ def f_lattice(t, vec, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
     pos = vec[0:3]
     v = vec[3:6]
     # Acceleration
-    grad_U = grad_U_L_rotated_(pos[0], pos[1], pos[2], Re_alpha, P, w01, w02, wavelength, z01, z02)
+    grad_U = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha, P, w01, w02, wavelength, z01, z02)
     gravity = g*e_x
     a = - grad_U / m_yb #- gravity
     # Derivative of the state vector: [v, a]
@@ -237,34 +250,44 @@ def f_lattice_odeint(vec, t, params):
     vec_dev = np.hstack((v, a)) 
     return vec_dev
 
-def f_lattice_and_tweezer(t, vec, Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w02, w0, wavelength, z01=0, z02=0, z0=0):
-    t01 = 10e-6 #s optical tweezers are switched on and their intensity is linaerly increased
-    t02 = 20e-6 #s optical tweezers stop increasing intensity
-    t03 = 25e-6 #s optical tweezers start moving
+def f_lattice_and_tweezer(t, vec, Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w02, w0, wavelength_lat, 
+                          wavelength_tw, v_max, t_v_max, t01, t02, t03, t04, x01=0, x02=0, z0=0):
+
     dPdt = P_tw/(t02-t01)  #Slope of the tweezer power scheme
+    dadt = - v_max/(t04-t_v_max)**2
     # Extract positions (x,y,z) and velocities (vx,vy,vz)
     pos = vec[0:3]
     v = vec[3:6]
-    # Acceleration
-    if t<t01:
-        grad_U = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength, z01, z02)
+    # Calculation of cceleration
+    if t<t01: #Only lattice is on
+        grad_U = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)
         gravity = g*e_y
         a = -grad_U / m_yb #- gravity
-    if t>=t01 and t<t02:
-        P = dPdt*t
-        grad_U_lattice = grad_U_L(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength, z01, z02)
-        grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P, w0, wavelength, z0)
+    if t>=t01 and t<t02: #Optical tweezers increasing power
+        P = dPdt*(t-t01)
+        grad_U_lattice = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)
+        grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P, w0, wavelength_tw, z0)
         grad_U = grad_U_lattice + grad_U_tweezer
         gravity = g*e_y 
         a = -grad_U / m_yb #- gravity
-    if t>=t02 and t<t03:
-        grad_U_lattice = grad_U_L(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength, z01, z02)
-        grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P_tw, w0, wavelength, z0)
+    if t>=t02 and t<t03: #Optical tweezers are on and static
+        grad_U_lattice = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)
+        grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P_tw, w0, wavelength_tw, z0)
         grad_U = grad_U_lattice + grad_U_tweezer
         gravity = g*e_y 
         a = -grad_U / m_yb #- gravity
-    if t>=t03:
-
+    if t>=t03 and t<t04: #Movement of optical tweezers
+        z0 = pos_const_jerk(t, dadt, t_v_max, v_max) #position of the tweezer
+        grad_U_lattice = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)
+        grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P_tw, w0, wavelength_tw, z0)
+        grad_U = grad_U_lattice + grad_U_tweezer
+        a = -grad_U / m_yb 
+    if t>=t04: #Optical tweezers are static again
+        z0_max = pos_const_jerk(t04, dadt, t_v_max, v_max)
+        grad_U_lattice = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)
+        grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P_tw, w0, wavelength_tw, z0_max)
+        grad_U = grad_U_lattice + grad_U_tweezer
+        a = -grad_U / m_yb 
     # Derivative of the state vector: [v, a]
     vec_dev = np.hstack((v, a)) 
     return vec_dev
@@ -298,6 +321,42 @@ def atom_loading_MOT_lattice(max_t, t_points, Re_alpha, P, w01, w02, wavelength,
         velocities.append(np.array([vx, vy, vz]))
         energies.append(E)
     return times, np.array(velocities), np.array(positions), np.array(energies), np.array(idx_lost_atoms)
+
+def atom_loading_MOT_lattice_tw(max_t, t_points, radii, N_atoms, T, Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w02, w0, 
+                                wavelength_lat, wavelength_tw, v_max, t_v_max, t01, t02, t03, t04, x01=0, x02=0, z0=0):
+    np.random.seed(10)
+    #Initial conditions
+    init_pos = random_points_in_sphere(radii, N_atoms)                 # Positions of each atoms over time                       [shape: (N_atoms, 3)]
+    init_vel = sample_mb_velocity(T, m_yb, N_atoms)                    # Velocities of each atom over time                       [shape: (N_atoms, 3)]
+    init_vec = np.hstack((init_pos, init_vel))                         # Initial state vector: [x, y, z, vx, vy, vz]             [shape: (N_atoms, 6)]
+    t_eval = np.linspace(0, max_t, t_points)
+    idx_t01 = np.argmin(np.abs(t_eval-t01))
+    velocities=[]                                                   # Velocities of each atom over time                       [shape: (N_atoms, 3, times)]
+    positions=[]                                                    # Positions of each atoms over time                       [shape: (N_atoms, 3, times)]
+    idx_lost_atoms = []
+    energies = []
+    
+    args = [Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w02, w0, wavelength_lat, wavelength_tw, v_max, t_v_max, t01, t02, t03, t04, x01, x02, z0]
+
+    for i in tqdm(range(N_atoms)):
+        sol = solve_ivp(f_lattice_and_tweezer, [0, max_t], init_vec[i], t_eval=t_eval, method='DOP853', args=args, rtol = 1e-6, atol = 1e-12)
+        times = sol.t
+        vec=sol.y
+        x, y, z = vec[0], vec[1], vec[2]
+        vx, vy, vz = vec[3], vec[4], vec[5]
+        positions.append(np.array([x, y, z]))
+        velocities.append(np.array([vx, vy, vz]))
+        E = []
+        for j in range(len(times)):
+            E.append(energy_lat_and_tw(times[j], x[j], y[j], z[j], vx[j], vy[j], vz[j], Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w02, w0,
+                      wavelength_lat, wavelength_tw, t01, t02, t03, t04, t_v_max, v_max, x01, x02, z0))
+        E = np.array(E)
+        E_eval = E[0:idx_t01]
+        lost = E_eval > 0
+        if lost.any():
+            idx_lost_atoms.append(i)
+        energies.append(E)
+    return times, np.array(velocities), np.array(positions), np.array(idx_lost_atoms), np.array(energies), 
 
 def atom_loading_MOT_lattice_odeint(max_t, Re_alpha, P, w01, w02, wavelength, z01, z02, radii, N_atoms, T):
     np.random.seed(10)
@@ -339,6 +398,22 @@ def energy(x, y, z, vx, vy, vz, Re_alpha, P, w01, w02, wavelength, z01 = 0, z02 
     potential_lattice = optical_dipole_trap_2_beams_rotated(x, y, z, 0, Re_alpha, P, w01, w02, wavelength, z01, z02) #shape: (N_atoms, len(t_eval))
     #gravity = m_yb * g * x                                                                                           #shape: (N_atoms, len(t_eval))
     energy = kinetik + potential_lattice #+ gravity                                                                   # Energy of each atom over time                                                                 [shape: (N_atoms, len(t_eval))]
+    return energy
+
+def energy_lat_and_tw(t, x, y, z, vx, vy, vz, Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w02, w0,
+                      wavelength_lat, wavelength_tw, t01, t02, t03, t04, t_v_max, v_max, x01 = 0, x02 = 0, z0 = 0):
+    #Kinetik energy
+    v2 = vx**2 + vy**2 + vz**2                                                                                                       #shape: (N_atoms, len(t_eval))
+    kinetik = 0.5 * m_yb * v2 
+    #potential energy lattice  
+    potential_lattice = optical_dipole_trap_2_beams_rotated(x, y, z, 0, Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)     #shape: (N_atoms, len(t_eval))
+    #Potential energy tweezers
+    dadt = - v_max/(t04-t_v_max)**2
+    P_tw = P_tw_t(t, P_tw, t01, t02)
+    z0 = position_tweezers(t, t03, t04, dadt, t_v_max, v_max)   
+    potential_tweezer = optical_dipole_trap_1_beam(x, y, z, Re_alpha_tw, P_tw, w0, wavelength_tw, z0)                                #shape: (N_atoms, len(t_eval))
+    #Total energy                                                                                                                    #shape: (N_atoms, len(t_eval))
+    energy = kinetik + potential_lattice + potential_tweezer                                                                         # Energy of each atom over time                                                                 [shape: (N_atoms, len(t_eval))]
     return energy
 
 def energy_event(t, vec, Re_alpha, P, w01, w02, wavelength, E_init, z01 = 0, z02 = 0):
@@ -599,8 +674,8 @@ def grad_U_L(x, y, z, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
     grad_U = -grad_U_0 + grad_U_Latt_sin
     return grad_U
 
-def grad_U_L_rotated(x, y, z, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
-    """
+"""def grad_U_L_rotated(x, y, z, Re_alpha, P, w01, w02, wavelength, x01=0, x02=0):
+
     Gradient of the lattice potential of a static lattice formed by two counter-propagating Gaussian beams with equal frequencies.
 
     :param x: x coordinate
@@ -613,13 +688,13 @@ def grad_U_L_rotated(x, y, z, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
     :param wavelength: Wavelength of the light
     :param z01: Position of the waist of the first beam
     :param z02: Position of the waist of the second beam
-    """
+
     k = 2 * pi / wavelength
     const = -Re_alpha/(2*eps_0 * c)
-    I_1 = gaussian_beam_rotated(x, y, z, P, w01, wavelength, z01)
-    I_2 = gaussian_beam_rotated(-x, y, z, P, w02, wavelength, z02)
-    I_1_grad = grad_I_rotated(x, y, z, P, w01, wavelength, z01)
-    I_2_grad = grad_I_rotated(-x, y, z, P, w02, wavelength, z02)
+    I_1 = gaussian_beam_rotated(x, y, z, P, w01, wavelength, x01)
+    I_2 = gaussian_beam_rotated(-x, y, z, P, w02, wavelength, x02)
+    I_1_grad = grad_I_rotated(x, y, z, P, w01, wavelength, x01)
+    I_2_grad = grad_I_rotated(-x, y, z, P, w02, wavelength, x02)
     grad_sqrt_I1I2 = np.array([
         (I_2*I_1_grad[0]+I_1*I_2_grad[0])/2*np.sqrt(I_1*I_2),
         (I_2*I_1_grad[1]+I_1*I_2_grad[1])/2*np.sqrt(I_1*I_2),
@@ -633,9 +708,9 @@ def grad_U_L_rotated(x, y, z, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
     v2 = (np.sin(k*z))**2*2*Re_alpha / (eps_0 * c) * grad_sqrt_I1I2
     grad_U_Latt_sin = v1 + v2
     grad_U = -grad_U_0 + grad_U_Latt_sin
-    return grad_U
+    return grad_U"""
 
-def grad_U_L_rotated_(x, y, z, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
+def grad_U_L_rotated(x, y, z, Re_alpha, P, w01, w02, wavelength, x01=0, x02=0):
     """
     Gradient of the lattice potential of a static lattice formed by two counter-propagating Gaussian beams with equal frequencies.
 
@@ -653,14 +728,19 @@ def grad_U_L_rotated_(x, y, z, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
     eps = 1e-15
     k = 2 * pi / wavelength
     const = -Re_alpha/(2*eps_0 * c)
+
     coss = np.cos(2*k*x)
     sinn = np.sin(2*k*x)
-    I_1 = gaussian_beam_rotated(x, y, z, P, w01, wavelength, z01)
-    I_2 = gaussian_beam_rotated(-x, y, z, P, w02, wavelength, z02)
-    I_1_grad = grad_I_rotated(x, y, z, P, w01, wavelength, z01)
-    I_2_grad = grad_I_rotated(-x, y, z, P, w02, wavelength, z02)
+
+    I_1 = gaussian_beam_rotated(x, y, z, P, w01, wavelength, x01)
+    I_2 = gaussian_beam_rotated(-x, y, z, P, w02, wavelength, x02)
+
+    I_1_grad = grad_I_rotated(x, y, z, P, w01, wavelength, x01)
+    I_2_grad = grad_I_rotated(-x, y, z, P, w02, wavelength, x02)
+
     div = 2*np.sqrt(I_1*I_2)
     div = np.maximum(div, eps)
+
     grad_sqrt_I1I2_cos = np.array([
         (coss*I_1*I_2_grad[0]+I_2*(-4*k*I_1*sinn+coss*I_1_grad[0]))/div,
         (coss*(I_1*I_2_grad[1]+I_2*I_1_grad[1]))/div,
@@ -683,6 +763,24 @@ def lattice_velocity(w1, w2, wavelength):
     return v
 
 ########################################################## OPTICAL TWEEZERS ##########################################################
+def P_tw_t(t, P_tw, t01, t02):
+    dPdt = P_tw/(t02-t01)
+    if t<t01:
+        P = 0
+    if t>=t01 and t<t02:
+        P = dPdt*(t-t01)
+    if t>=t02:
+        P = P_tw
+    return P
+
+def position_tweezers(t, t03, t04, dadt, t_v_max, v_max):
+    if t<t03:
+        z0 = 0
+    if t>=t03 and t<t04:
+        z0 = pos_const_jerk(t, dadt, t_v_max, v_max)
+    if t>=t04:
+        z0 = pos_const_jerk(t04, dadt, t_v_max, v_max)
+    return z0
 
 def optical_dipole_trap_1_beam(x, y, z, Re_alpha, P, w0, wavelength, z0=0):
     """
