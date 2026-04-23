@@ -250,7 +250,7 @@ def f_lattice_odeint(vec, t, params):
     vec_dev = np.hstack((v, a)) 
     return vec_dev
 
-def f_lattice_and_tweezer(t, vec, Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w02, w0, wavelength_lat, 
+def f_MOT_lattice_tweezer(t, vec, Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w02, w0, wavelength_lat, 
                           wavelength_tw, v_max, t_v_max, t01, t02, t03, t04, x01=0, x02=0, z0=0):
 
     dPdt = P_tw/(t02-t01)  #Slope of the tweezer power scheme
@@ -270,7 +270,7 @@ def f_lattice_and_tweezer(t, vec, Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w
         grad_U = grad_U_lattice + grad_U_tweezer
         gravity = g*e_y 
         a = -grad_U / m_yb #- gravity
-    if t>=t02 and t<t03: #Optical tweezers are on and static
+    if t>=t02 and t<t03: #Optical tweezers on and static
         grad_U_lattice = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)
         grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P_tw, w0, wavelength_tw, z0)
         grad_U = grad_U_lattice + grad_U_tweezer
@@ -331,15 +331,17 @@ def atom_loading_MOT_lattice_tw(max_t, t_points, radii, N_atoms, T, Re_alpha_lat
     init_vec = np.hstack((init_pos, init_vel))                         # Initial state vector: [x, y, z, vx, vy, vz]             [shape: (N_atoms, 6)]
     t_eval = np.linspace(0, max_t, t_points)
     idx_t01 = np.argmin(np.abs(t_eval-t01))
+    idx_t04 = np.argmin(np.abs(t_eval-t04))                         # Time when the tweezer is switched on
     velocities=[]                                                   # Velocities of each atom over time                       [shape: (N_atoms, 3, times)]
     positions=[]                                                    # Positions of each atoms over time                       [shape: (N_atoms, 3, times)]
-    idx_lost_atoms = []
+    idx_lost_MOT_lat = []
+    idx_lost_lat_tw = []
     energies = []
     
     args = [Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w02, w0, wavelength_lat, wavelength_tw, v_max, t_v_max, t01, t02, t03, t04, x01, x02, z0]
 
     for i in tqdm(range(N_atoms)):
-        sol = solve_ivp(f_lattice_and_tweezer, [0, max_t], init_vec[i], t_eval=t_eval, method='DOP853', args=args, rtol = 1e-6, atol = 1e-12)
+        sol = solve_ivp(f_MOT_lattice_tweezer, [0, max_t], init_vec[i], t_eval=t_eval, method='DOP853', args=args, rtol = 1e-6, atol = 1e-12)
         times = sol.t
         vec=sol.y
         x, y, z = vec[0], vec[1], vec[2]
@@ -350,13 +352,17 @@ def atom_loading_MOT_lattice_tw(max_t, t_points, radii, N_atoms, T, Re_alpha_lat
         for j in range(len(times)):
             E.append(energy_lat_and_tw(times[j], x[j], y[j], z[j], vx[j], vy[j], vz[j], Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w02, w0,
                       wavelength_lat, wavelength_tw, t01, t02, t03, t04, t_v_max, v_max, x01, x02, z0))
-        E = np.array(E)
-        E_eval = E[0:idx_t01]
-        lost = E_eval > 0
-        if lost.any():
-            idx_lost_atoms.append(i)
+        E_eval1 = np.array(E[0:idx_t01])
+        lost1 = E_eval1 > 0
+        if lost1.any():
+            idx_lost_MOT_lat.append(i)
+        else:
+            E_eval2 = np.array(E[idx_t04:])
+            lost2 = E_eval2 >0
+            if lost2.any():
+                idx_lost_lat_tw.append(i)
         energies.append(E)
-    return times, np.array(velocities), np.array(positions), np.array(idx_lost_atoms), np.array(energies), 
+    return times, np.array(velocities), np.array(positions), np.array(idx_lost_MOT_lat), np.array(idx_lost_lat_tw), np.array(energies) 
 
 def atom_loading_MOT_lattice_odeint(max_t, Re_alpha, P, w01, w02, wavelength, z01, z02, radii, N_atoms, T):
     np.random.seed(10)
@@ -777,9 +783,10 @@ def position_tweezers(t, t03, t04, dadt, t_v_max, v_max):
     if t<t03:
         z0 = 0
     if t>=t03 and t<t04:
-        z0 = pos_const_jerk(t, dadt, t_v_max, v_max)
+        tau = t - t03
+        z0 = pos_const_jerk(tau, dadt, t_v_max, v_max)
     if t>=t04:
-        z0 = pos_const_jerk(t04, dadt, t_v_max, v_max)
+        z0 = pos_const_jerk(t04-t03, dadt, t_v_max, v_max)
     return z0
 
 def optical_dipole_trap_1_beam(x, y, z, Re_alpha, P, w0, wavelength, z0=0):
