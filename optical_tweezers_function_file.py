@@ -188,13 +188,16 @@ def grad_I_rotated(x, y, z, P, w0, wavelength, x0 = 0):
     return np.array([grad_x, grad_y, grad_z])
 
 def pos_const_jerk(t, a, b, c):
-    return a*b**2*t-a*b*t**2+a/3*t**3+c*t
+    #z = z0+v0*t+(1/2)*a0*t**2+(1/6)*j*t**3
+    return (a*b**2+c)*t+2*a*b*t**2+a/3*t**3
 
 def vel_const_jerk(t, a, b, c):
+    #v = v0+ a0*t + (1/2)*j*t**2
     return a*(t-b)**2+c
 
 def a_const_jerk(t, a, b):
-    return 2*a*(t-b)
+    #a = a0+j*t
+    return 2*a*b+2*a*t
 #################################################### EQUATIONS OF MOTION #########################################################
 
 #--------------------------------------------------- Initialization --------------------------------------------------------------
@@ -277,13 +280,13 @@ def f_MOT_lattice_tweezer(t, vec, Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w
         gravity = g*e_y 
         a = -grad_U / m_yb #- gravity
     if t>=t03 and t<t04: #Movement of optical tweezers
-        z0 = pos_const_jerk(t, dadt, t_v_max, v_max) #position of the tweezer
+        z0 = pos_const_jerk(t-t03, dadt, t_v_max, v_max) #position of the tweezer
         grad_U_lattice = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)
         grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P_tw, w0, wavelength_tw, z0)
         grad_U = grad_U_lattice + grad_U_tweezer
         a = -grad_U / m_yb 
     if t>=t04: #Optical tweezers are static again
-        z0_max = pos_const_jerk(t04, dadt, t_v_max, v_max)
+        z0_max = pos_const_jerk(t04-t03, dadt, t_v_max, v_max)
         grad_U_lattice = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)
         grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P_tw, w0, wavelength_tw, z0_max)
         grad_U = grad_U_lattice + grad_U_tweezer
@@ -412,7 +415,7 @@ def energy_lat_and_tw(t, x, y, z, vx, vy, vz, Re_alpha_lat, Re_alpha_tw, P_lat, 
     v2 = vx**2 + vy**2 + vz**2                                                                                                       #shape: (N_atoms, len(t_eval))
     kinetik = 0.5 * m_yb * v2 
     #potential energy lattice  
-    potential_lattice = optical_dipole_trap_2_beams_rotated(x, y, z, 0, Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)     #shape: (N_atoms, len(t_eval))
+    potential_lattice = optical_dipole_trap_2_beams_rotated(x, y, z, t, Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)     #shape: (N_atoms, len(t_eval))
     #Potential energy tweezers
     dadt = - v_max/(t04-t_v_max)**2
     P_tw = P_tw_t(t, P_tw, t01, t02)
@@ -783,11 +786,30 @@ def position_tweezers(t, t03, t04, dadt, t_v_max, v_max):
     if t<t03:
         z0 = 0
     if t>=t03 and t<t04:
-        tau = t - t03
+        tau = t-t03
         z0 = pos_const_jerk(tau, dadt, t_v_max, v_max)
     if t>=t04:
         z0 = pos_const_jerk(t04-t03, dadt, t_v_max, v_max)
     return z0
+
+def velocity_tweezers(t, t03, t04, dadt, t_v_max, v_max):
+    if t<t03:
+        v = 0
+    if t>=t03 and t<t04:
+        v = vel_const_jerk(t, dadt, t_v_max, v_max) 
+    if t>=t04:
+        v = 0
+    return v
+
+def acceleration_tweezer(t, t03, t04, dadt, t_v_max):
+    if t<t03:
+        a = 0
+    if t>=t03 and t<t04:
+        tau = t-t03
+        a = a_const_jerk(tau, dadt, t_v_max) 
+    if t>=t04:
+        a = 0
+    return a
 
 def optical_dipole_trap_1_beam(x, y, z, Re_alpha, P, w0, wavelength, z0=0):
     """
