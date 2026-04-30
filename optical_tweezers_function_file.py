@@ -53,7 +53,6 @@ def J_to_Hz(E):
     """
     return E/h
 
-
 def gaussian_beam(x, y, z, P, w0, wavelength, z0=0):
     """
     Intensity profile of a Gaussian beam.
@@ -240,15 +239,38 @@ def f_lattice(t, vec, Re_alpha, P, w01, w02, wavelength, z01=0, z02=0):
     vec_dev = np.hstack((v, a)) 
     return vec_dev
 
-def f_lattice_odeint(vec, t, params):
+def f_lattice_tweezer(t, vec, Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w02, w0, wavelength_lat, 
+                          wavelength_tw, v_max, t_v_max, t01, t02, t03, t04, x01=0, x02=0, z0=0):
+
+    dPdt = P_tw/(t02-t01)  #Slope of the tweezer power scheme
+    dadt = - v_max/(t04-t_v_max)**2
     # Extract positions (x,y,z) and velocities (vx,vy,vz)
     pos = vec[0:3]
     v = vec[3:6]
-    Re_alpha, P, w01, w02, wavelength, z01, z02 = params
-    # Acceleration
-    grad_U = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha, P, w01, w02, wavelength, z01, z02)
-    gravity = g*e_x
-    a = - grad_U / m_yb #- gravity
+    # Calculation of acceleration
+    if t<t01: #Optical tweezers increasing power
+        P = dPdt*(t-t01)
+        grad_U_lattice = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)
+        grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P, w0, wavelength_tw, z0)
+        grad_U = grad_U_lattice + grad_U_tweezer 
+        a = -grad_U / m_yb
+    if t>=t01 and t<t02: #Optical tweezers on and static
+        grad_U_lattice = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)
+        grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P_tw, w0, wavelength_tw, z0)
+        grad_U = grad_U_lattice + grad_U_tweezer
+        a = -grad_U / m_yb
+    if t>=t02 and t<t03: #Movement of optical tweezers
+        z0 = pos_const_jerk(t-t03, dadt, t_v_max, v_max) #position of the tweezer
+        grad_U_lattice = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)
+        grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P_tw, w0, wavelength_tw, z0)
+        grad_U = grad_U_lattice + grad_U_tweezer
+        a = -grad_U / m_yb 
+    if t>=t03: #Optical tweezers are static again
+        z0_max = pos_const_jerk(t04-t03, dadt, t_v_max, v_max)
+        grad_U_lattice = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)
+        grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P_tw, w0, wavelength_tw, z0_max)
+        grad_U = grad_U_lattice + grad_U_tweezer
+        a = -grad_U / m_yb 
     # Derivative of the state vector: [v, a]
     vec_dev = np.hstack((v, a)) 
     return vec_dev
@@ -261,7 +283,7 @@ def f_MOT_lattice_tweezer(t, vec, Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w
     # Extract positions (x,y,z) and velocities (vx,vy,vz)
     pos = vec[0:3]
     v = vec[3:6]
-    # Calculation of cceleration
+    # Calculation of acceleration
     if t<t01: #Only lattice is on
         grad_U = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)
         gravity = g*e_y
@@ -325,6 +347,37 @@ def atom_loading_MOT_lattice(max_t, t_points, Re_alpha, P, w01, w02, wavelength,
         energies.append(E)
     return times, np.array(velocities), np.array(positions), np.array(energies), np.array(idx_lost_atoms)
 
+def atom_loading_lattice_tw(max_t, t_points, N_atoms, init_pos, init_vel, Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w02, w0, 
+                                wavelength_lat, wavelength_tw, v_max, t_v_max, t01, t02, t03, t04, x01=0, x02=0, z0=0):
+    np.random.seed(10)
+    #Initial conditions
+    init_vec = np.hstack((init_pos, init_vel))                       # Initial state vector: [x, y, z, vx, vy, vz]             [shape: (N_atoms, 6)]
+    t_eval = np.linspace(0, max_t, t_points)
+    velocities=[]                                                   # Velocities of each atom over time                       [shape: (N_atoms, 3, times)]
+    positions=[]                                                    # Positions of each atoms over time                       [shape: (N_atoms, 3, times)]
+    idx_lost_atoms = []
+    energies = []
+    
+    args = [Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w02, w0, wavelength_lat, wavelength_tw, v_max, t_v_max, t01, t02, t03, t04, x01, x02, z0]
+
+    for i in tqdm(range(N_atoms)):
+        sol = solve_ivp(f_lattice_tweezer, [0, max_t], init_vec[i], t_eval=t_eval, method='DOP853', args=args, rtol = 1e-6, atol = 1e-12)
+        times = sol.t
+        vec=sol.y
+        x, y, z = vec[0], vec[1], vec[2]
+        vx, vy, vz = vec[3], vec[4], vec[5]
+        positions.append(np.array([x, y, z]))
+        velocities.append(np.array([vx, vy, vz]))
+        E = []
+        for j in range(len(times)):
+            E.append(energy_lat_and_tw(times[j], x[j], y[j], z[j], vx[j], vy[j], vz[j], Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w02, w0,
+                      wavelength_lat, wavelength_tw, t01, t02, t03, t04, t_v_max, v_max, x01, x02, z0))
+        lost = np.array(E) > 0
+        if lost.any():
+            idx_lost_atoms.append(i)
+        energies.append(E)
+    return times, np.array(velocities), np.array(positions), np.array(idx_lost_atoms), np.array(energies) 
+
 def atom_loading_MOT_lattice_tw(max_t, t_points, radii, N_atoms, T, Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w02, w0, 
                                 wavelength_lat, wavelength_tw, v_max, t_v_max, t01, t02, t03, t04, x01=0, x02=0, z0=0):
     np.random.seed(10)
@@ -366,6 +419,21 @@ def atom_loading_MOT_lattice_tw(max_t, t_points, radii, N_atoms, T, Re_alpha_lat
                 idx_lost_lat_tw.append(i)
         energies.append(E)
     return times, np.array(velocities), np.array(positions), np.array(idx_lost_MOT_lat), np.array(idx_lost_lat_tw), np.array(energies) 
+
+#--------------------------------------------------- odeint as solver ---------------------------------------------
+
+def f_lattice_odeint(vec, t, params):
+    # Extract positions (x,y,z) and velocities (vx,vy,vz)
+    pos = vec[0:3]
+    v = vec[3:6]
+    Re_alpha, P, w01, w02, wavelength, z01, z02 = params
+    # Acceleration
+    grad_U = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha, P, w01, w02, wavelength, z01, z02)
+    gravity = g*e_x
+    a = - grad_U / m_yb #- gravity
+    # Derivative of the state vector: [v, a]
+    vec_dev = np.hstack((v, a)) 
+    return vec_dev
 
 def atom_loading_MOT_lattice_odeint(max_t, Re_alpha, P, w01, w02, wavelength, z01, z02, radii, N_atoms, T):
     np.random.seed(10)
