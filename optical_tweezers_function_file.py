@@ -243,33 +243,15 @@ def f_lattice_tweezer(t, vec, Re_alpha_lat, Re_alpha_tw, P_lat, P_tw, w01, w02, 
                           wavelength_tw, v_max, t_v_max, t01, t02, t03, x01=0, x02=0, z0=0):
 
     dadt = -v_max/((t02-t_v_max)**2)
+    P = P_tw_t(t, P_tw, 0, t01) #Power of the tweezer                                
+    z0_tw = position_tweezers(t, t02, t03, dadt, t_v_max, v_max) #Position of the tweezer
     # Extract positions (x,y,z) and velocities (vx,vy,vz)
     pos = vec[0:3]
     v = vec[3:6]
-    # Calculation of acceleration
-    if t<t01: #Optical tweezers increasing power
-        P = P_tw_t(t, P_tw, 0, t01)
-        grad_U_lattice = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)
-        grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P, w0, wavelength_tw, z0)
-        grad_U = grad_U_lattice + grad_U_tweezer 
-        a = -grad_U / m_yb
-    if t>=t01 and t<t02: #Optical tweezers on and static
-        grad_U_lattice = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)
-        grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P_tw, w0, wavelength_tw, z0)
-        grad_U = grad_U_lattice + grad_U_tweezer
-        a = -grad_U / m_yb
-    if t>=t02 and t<t03: #Movement of optical tweezers
-        z0 = position_tweezers(t, t02, t03, dadt, t_v_max, v_max) #position of the tweezer
-        grad_U_lattice = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)
-        grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P_tw, w0, wavelength_tw, z0)
-        grad_U = grad_U_lattice + grad_U_tweezer
-        a = -grad_U / m_yb 
-    if t>=t03: #Optical tweezers are static again
-        z0 = position_tweezers(t, t02, t03, dadt, t_v_max, v_max)
-        grad_U_lattice = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)
-        grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P_tw, w0, wavelength_tw, z0)
-        grad_U = grad_U_lattice + grad_U_tweezer
-        a = -grad_U / m_yb 
+    grad_U_lattice = grad_U_L_rotated(pos[0], pos[1], pos[2], Re_alpha_lat, P_lat, w01, w02, wavelength_lat, x01, x02)
+    grad_U_tweezer = grad_U_T(pos[0], pos[1], pos[2], Re_alpha_tw, P, w0, wavelength_tw, z0_tw)
+    grad_U = grad_U_lattice + grad_U_tweezer 
+    a = -grad_U / m_yb
     # Derivative of the state vector: [v, a]
     vec_dev = np.hstack((v, a)) 
     return vec_dev
