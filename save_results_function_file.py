@@ -105,3 +105,32 @@ def find_simulations(folder, conditions):
                 matches.append(filepath)
     
     return matches
+
+# ---------------------------
+# Find by date
+# ---------------------------
+def find_by_date(folder, start_date=None, end_date=None):
+    matches = []
+    
+    if start_date:
+        start_date = datetime.fromisoformat(start_date)
+    if end_date:
+        end_date = datetime.fromisoformat(end_date)
+    
+    for filename in os.listdir(folder):
+        if not filename.endswith(".h5"):
+            continue
+        
+        filepath = os.path.join(folder, filename)
+        
+        with h5py.File(filepath, "r") as f:
+            file_date = datetime.fromisoformat(f.attrs["date"])
+        
+        if start_date and file_date < start_date:
+            continue
+        if end_date and file_date > end_date:
+            continue
+        
+        matches.append((filepath, file_date))
+    
+    return matches
